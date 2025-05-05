@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Authenticity Checker</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        .upload-section {
+            border: 2px dashed #ccc;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 30px;
+            position: relative;
+            transition: background-color 0.3s;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        .upload-label {
+            cursor: pointer;
+            color: #666;
+        }
+
+        .upload-label:hover {
+            color: #333;
+        }
+
+        .results {
+            margin-top: 30px;
+            display: none;
+        }
+
+        .page-card {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            padding: 5px 15px;
+            border-radius: 15px;
+            font-weight: bold;
+        }
+
+        .original {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .photocopy {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .progress-container {
+            margin-top: 20px;
+            display: none;
+        }
+
+        .progress-bar {
+            height: 10px;
+            background: #eee;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .progress {
+            width: 0%;
+            height: 100%;
+            background: #007bff;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            text-align: center;
+            margin-top: 5px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .metrics-table {
+            width: 100%;
+            margin-top: 10px;
+            border-collapse: collapse;
+            display: none;
+        }
+
+        .metrics-table th {
+            text-align: left;
+            background-color: #f2f2f2;
+        }
+
+        .metrics-table th, .metrics-table td {
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .metrics-btn {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .threshold-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-left: 8px;
+        }
+
+        .threshold-pass {
+            background-color: #4CAF50;
+        }
+
+        .threshold-fail {
+            background-color: #f44336;
+        }
+
+        .summary {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9f7ef;
+            border-radius: 5px;
+            display: none;
+        }
+        
+        /* Styles for file info and preview */
+        .file-info {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .file-name {
+            font-weight: bold;
+            margin-right: 10px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 70%;
+        }
+        
+        .preview-btn {
+            background-color: #007bff;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        
+        .pdf-preview {
+            margin-top: 20px;
+            display: none;
+            width: 100%;
+            height: 500px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Document Authenticity Checker</h1>
+        
+        <div class="upload-section" id="drop-area">
+            <input type="file" id="file-input" accept=".pdf">
+            <label for="file-input" class="upload-label">
+                <h2>📁 Upload PDF Document</h2>
+                <p>Click to select a file or drag and drop here</p>
+            </label>
+        </div>
+        
+        <!-- File info section -->
+        <div class="file-info" id="file-info">
+            <div class="file-name" id="file-name"></div>
+            <button class="preview-btn" id="preview-btn">Preview PDF</button>
+        </div>
+        
+        <!-- Progress bar -->
+        <div class="progress-container" id="progress-container">
+            <div class="progress-bar">
+                <div class="progress" id="progress-bar"></div>
+            </div>
+            <div class="progress-text" id="progress-text">Processing page 0 of 0...</div>
+        </div>
+        
+        <!-- PDF Preview iframe -->
+        <iframe class="pdf-preview" id="pdf-preview"></iframe>
+
+        <div class="summary" id="summary">
+            <h2>Analysis Summary</h2>
+            <p id="summary-text"></p>
+        </div>
+
+        <div class="results">
+            <h2>Page-by-Page Analysis</h2>
+            <div id="results-container"></div>
+        </div>
+    </div>
+
+    <script>
+        const SERVER_URL = 'http://localhost:5022';
+
+        const fileInput = document.getElementById('file-input');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const progressContainer = document.getElementById('progress-container');
+        const resultsContainer = document.getElementById('results-container');
+        const resultsSection = document.querySelector('.results');
+        const dropArea = document.getElementById('drop-area');
+        const summarySection = document.getElementById('summary');
+        const summaryText = document.getElementById('summary-text');
+        
+        // Elements for file info and preview
+        const fileInfoSection = document.getElementById('file-info');
+        const fileNameElement = document.getElementById('file-name');
+        const previewButton = document.getElementById('preview-btn');
+        const pdfPreview = document.getElementById('pdf-preview');
+
+        // Thresholds for feature analysis
+        const THRESHOLDS = {
+            'noise_mad': 1.36,           // Updated from 4.0
+            'noise_wavelet': 0.36,       // Updated from 2.0
+            'noise_laplacian': 200.0,    // Updated from 50.0
+            'edge_density': 0.022,       // Updated from 0.1
+            'edge_strength': 36.0,       // Updated from 20.0
+            'print_pattern_energy': 203.0, // Updated
+            'print_pattern_variance': 614.0 // Updated from 100.0
+        };
+
+
+        // Define direction (True if original has higher values)
+        // Define direction (True if original has higher values)
+        const DIRECTIONS = {
+            'noise_mad': true,             // Unchanged (higher in originals)
+            'noise_wavelet': true,         // Unchanged (higher in originals)
+            'noise_laplacian': false,      // Changed to false (higher in photocopies)
+            'edge_density': false,         // Changed to false (higher in photocopies)
+            'edge_strength': true,         // Unchanged
+            'print_pattern_energy': false, // Unchanged
+            'print_pattern_variance': true // Unchanged (higher in originals)
+        };
+
+
+        // Store the current file object
+        let currentFile = null;
+        // Store results as they come in
+        let pageResults = [];
+
+        fileInput.addEventListener('change', function() {
+            const file = fileInput.files[0];
+            if (!file) return;
+            
+            // Store the file and update the UI
+            currentFile = file;
+            updateFileInfo(file);
+            
+            // Process the file
+            handleFileUpload();
+        });
+        
+        // Function to update file info display
+        function updateFileInfo(file) {
+            fileNameElement.textContent = file.name;
+            fileInfoSection.style.display = 'flex';
+            pdfPreview.style.display = 'none'; // Hide preview initially
+        }
+        
+        // Preview button click handler
+        previewButton.addEventListener('click', function() {
+            if (!currentFile) return;
+            
+            // Toggle preview visibility
+            if (pdfPreview.style.display === 'none' || pdfPreview.style.display === '') {
+                // Create object URL for the PDF
+                const objectUrl = URL.createObjectURL(currentFile);
+                pdfPreview.src = objectUrl;
+                pdfPreview.style.display = 'block';
+                previewButton.textContent = 'Hide Preview';
+            } else {
+                pdfPreview.style.display = 'none';
+                previewButton.textContent = 'Preview PDF';
+            }
+        });
+
+        function handleFileUpload() {
+            const file = currentFile;
+            if (!file) return;
+            if (file.type !== 'application/pdf') {
+                alert('Please upload a PDF file');
+                return;
+            }
+
+            // Reset UI
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Preparing to process...';
+            resultsSection.style.display = 'none';
+            summarySection.style.display = 'none';
+            resultsContainer.innerHTML = '';
+            pageResults = [];
+
+            // Create form data
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Make the POST request and handle the SSE response
+            fetch(`${SERVER_URL}/analyze-stream`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                function processStream() {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) {
+                            return;
+                        }
+                        
+                        // Decode the chunk and add it to our buffer
+                        buffer += decoder.decode(value, { stream: true });
+                        
+                        // Process complete SSE messages
+                        const lines = buffer.split('\n\n');
+                        buffer = lines.pop(); // Keep the last incomplete chunk
+                        
+                        lines.forEach(line => {
+                            if (line.startsWith('data: ')) {
+                                const data = JSON.parse(line.substring(6));
+                                
+                                switch(data.status) {
+                                    case 'start':
+                                        progressText.textContent = `Processing page 0 of ${data.total_pages}...`;
+                                        break;
+                                        
+                                    case 'progress':
+                                        const percent = (data.current / data.total) * 100;
+                                        progressBar.style.width = percent + '%';
+                                        progressText.textContent = `Processing page ${data.current} of ${data.total}...`;
+                                        
+                                        // Add the page result to our array
+                                        pageResults.push(data.page_result);
+                                        
+                                        // Update the results container with the latest page
+                                        updateResultsWithPage(data.page_result);
+                                        break;
+                                        
+                                    case 'complete':
+                                        progressText.textContent = 'Processing complete!';
+                                        progressBar.style.width = '100%';
+                                        
+                                        // Display final results
+                                        displayResults(data.results);
+                                        displaySummary(data.results);
+                                        resultsSection.style.display = 'block';
+                                        summarySection.style.display = 'block';
+                                        
+                                        // Hide progress after a delay
+                                        setTimeout(() => {
+                                            progressContainer.style.display = 'none';
+                                        }, 2000);
+                                        break;
+                                        
+                                    case 'error':
+                                        alert('Error analyzing document: ' + data.message);
+                                        progressContainer.style.display = 'none';
+                                        break;
+                                }
+                            }
+                        });
+                        
+                        // Continue reading
+                        return processStream();
+                    });
+                }
+                
+                return processStream();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error uploading file');
+                progressContainer.style.display = 'none';
+            });
+        }
+
+        function updateResultsWithPage(result) {
+            // Create or update the page card
+            const existingCard = document.getElementById(`page-card-${result.page}`);
+            
+            if (existingCard) {
+                // Update existing card
+                existingCard.innerHTML = createPageCardHTML(result);
+            } else {
+                // Create new card
+                const pageCard = document.createElement('div');
+                pageCard.id = `page-card-${result.page}`;
+                pageCard.className = 'page-card';
+                pageCard.innerHTML = createPageCardHTML(result);
+                resultsContainer.appendChild(pageCard);
+                resultsSection.style.display = 'block';
+            }
+        }
+
+        function createPageCardHTML(result) {
+            const metrics = result.metrics;
+            const confidence = result.confidence ? (result.confidence * 100).toFixed(1) + '%' : 'N/A';
+    
+            return `
+                <div class="page-header">
+                    <h3>Page ${result.page}</h3>
+                    <div class="status ${result.classification}">
+                        ${result.classification.toUpperCase()}
+                    </div>
+                </div>
+                <button onclick="toggleMetrics(${result.page})" class="metrics-btn" id="btn-${result.page}">
+                    Show Details
+                </button>
+                <table class="metrics-table" id="metrics-${result.page}">
+                    <tr>
+                        <th>Metric</th>
+                        <th>Value</th>
+                        <th>Threshold</th>
+                        <th>Indication</th>
+                    </tr>
+                    <tr>
+                        <td>Noise (MAD)</td>
+                        <td>${metrics.noise_mad !== undefined ? metrics.noise_mad.toFixed(4) : 'N/A'}</td>
+                        <td>${DIRECTIONS.noise_mad ? '≥' : '≤'} ${THRESHOLDS.noise_mad}</td>
+                        <td>
+                            ${getThresholdIndicator((metrics.noise_mad >= THRESHOLDS.noise_mad) === DIRECTIONS.noise_mad)}
+                            ${(metrics.noise_mad >= THRESHOLDS.noise_mad) === DIRECTIONS.noise_mad ? 'Likely original' : 'Likely photocopy'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Noise (Wavelet)</td>
+                        <td>${metrics.noise_wavelet !== undefined ? metrics.noise_wavelet.toFixed(4) : 'N/A'}</td>
+                        <td>${DIRECTIONS.noise_wavelet ? '≥' : '≤'} ${THRESHOLDS.noise_wavelet}</td>
+                        <td>
+                            ${getThresholdIndicator((metrics.noise_wavelet >= THRESHOLDS.noise_wavelet) === DIRECTIONS.noise_wavelet)}
+                            ${(metrics.noise_wavelet >= THRESHOLDS.noise_wavelet) === DIRECTIONS.noise_wavelet ? 'Likely original' : 'Likely photocopy'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Noise (Laplacian)</td>
+                        <td>${metrics.noise_laplacian !== undefined ? metrics.noise_laplacian.toFixed(4) : 'N/A'}</td>
+                        <td>${DIRECTIONS.noise_laplacian ? '≥' : '≤'} ${THRESHOLDS.noise_laplacian}</td>
+                        <td>
+                            ${getThresholdIndicator((metrics.noise_laplacian >= THRESHOLDS.noise_laplacian) === DIRECTIONS.noise_laplacian)}
+                            ${(metrics.noise_laplacian >= THRESHOLDS.noise_laplacian) === DIRECTIONS.noise_laplacian ? 'Likely original' : 'Likely photocopy'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Edge Density</td>
+                        <td>${metrics.edge_density !== undefined ? metrics.edge_density.toFixed(4) : 'N/A'}</td>
+                        <td>${DIRECTIONS.edge_density ? '≥' : '≤'} ${THRESHOLDS.edge_density}</td>
+                        <td>
+                            ${getThresholdIndicator((metrics.edge_density >= THRESHOLDS.edge_density) === DIRECTIONS.edge_density)}
+                            ${(metrics.edge_density >= THRESHOLDS.edge_density) === DIRECTIONS.edge_density ? 'Likely original' : 'Likely photocopy'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Edge Strength</td>
+                        <td>${metrics.edge_strength !== undefined ? metrics.edge_strength.toFixed(4) : 'N/A'}</td>
+                        <td>${DIRECTIONS.edge_strength ? '≥' : '≤'} ${THRESHOLDS.edge_strength}</td>
+                        <td>
+                            ${getThresholdIndicator((metrics.edge_strength >= THRESHOLDS.edge_strength) === DIRECTIONS.edge_strength)}
+                            ${(metrics.edge_strength >= THRESHOLDS.edge_strength) === DIRECTIONS.edge_strength ? 'Likely original' : 'Likely photocopy'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Print Pattern Energy</td>
+                        <td>${metrics.print_pattern_energy !== undefined ? metrics.print_pattern_energy.toFixed(4) : 'N/A'}</td>
+                        <td>${DIRECTIONS.print_pattern_energy ? '≥' : '≤'} ${THRESHOLDS.print_pattern_energy}</td>
+                        <td>
+                            ${getThresholdIndicator((metrics.print_pattern_energy >= THRESHOLDS.print_pattern_energy) === DIRECTIONS.print_pattern_energy)}
+                            ${(metrics.print_pattern_energy >= THRESHOLDS.print_pattern_energy) === DIRECTIONS.print_pattern_energy ? 'Likely original' : 'Likely photocopy'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Print Pattern Variance</td>
+                        <td>${metrics.print_pattern_variance !== undefined ? metrics.print_pattern_variance.toFixed(4) : 'N/A'}</td>
+                        <td>${DIRECTIONS.print_pattern_variance ? '≥' : '≤'} ${THRESHOLDS.print_pattern_variance}</td>
+                        <td>
+                                     ${getThresholdIndicator((metrics.print_pattern_variance >= THRESHOLDS.print_pattern_variance) === DIRECTIONS.print_pattern_variance)}
+                            ${(metrics.print_pattern_variance >= THRESHOLDS.print_pattern_variance) === DIRECTIONS.print_pattern_variance ? 'Likely original' : 'Likely photocopy'}
+                        </td>
+                    </tr>
+                </table>
+            `;
+        }
+
+        function displayResults(results) {
+            // Clear and rebuild the results container
+            resultsContainer.innerHTML = '';
+            
+            results.forEach(result => {
+                const pageCard = document.createElement('div');
+                pageCard.id = `page-card-${result.page}`;
+                pageCard.className = 'page-card';
+                pageCard.innerHTML = createPageCardHTML(result);
+                resultsContainer.appendChild(pageCard);
+            });
+        }
+
+        function displaySummary(results) {
+            const totalPages = results.length;
+            const photocopies = results.filter(r => r.classification === 'photocopy').length;
+            const originals = totalPages - photocopies;
+            
+            let summaryMessage = '';
+            if (photocopies === 0) {
+                summaryMessage = `All ${totalPages} pages appear to be original documents.`;
+            } else if (originals === 0) {
+                summaryMessage = `All ${totalPages} pages appear to be photocopies.`;
+            } else {
+                summaryMessage = `${originals} pages appear to be original and ${photocopies} pages appear to be photocopies.`;
+                
+                // List which pages are photocopies
+                const photocopyPages = results
+                    .filter(r => r.classification === 'photocopy')
+                    .map(r => r.page)
+                    .join(', ');
+                
+                summaryMessage += ` Potential photocopies: page${photocopies > 1 ? 's' : ''} ${photocopyPages}.`;
+            }
+            
+            summaryText.textContent = summaryMessage;
+        }
+
+        function getThresholdIndicator(condition) {
+            return `<span class="threshold-indicator ${condition ? 'threshold-pass' : 'threshold-fail'}"></span>`;
+        }
+
+        function toggleMetrics(pageNum) {
+            const metricsTable = document.getElementById(`metrics-${pageNum}`);
+            const button = document.getElementById(`btn-${pageNum}`);
+            
+            if (metricsTable.style.display === 'none' || metricsTable.style.display === '') {
+                metricsTable.style.display = 'table';
+                button.textContent = 'Hide Details';
+            } else {
+                metricsTable.style.display = 'none';
+                button.textContent = 'Show Details';
+            }
+        }
+
+        // Drag and drop functionality
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.style.backgroundColor = '#f0f7ff';
+            dropArea.style.borderColor = '#007bff';
+        });
+
+        dropArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            dropArea.style.backgroundColor = 'white';
+            dropArea.style.borderColor = '#ccc';
+        });
+
+        dropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropArea.style.backgroundColor = 'white';
+            dropArea.style.borderColor = '#ccc';
+            
+            if (e.dataTransfer.files.length) {
+                const file = e.dataTransfer.files[0];
+                currentFile = file;
+                fileInput.files = e.dataTransfer.files;
+                updateFileInfo(file);
+                handleFileUpload();
+            }
+        });
+
+        // Make toggleMetrics function globally accessible
+        window.toggleMetrics = toggleMetrics;
+    </script>
+</body>
+</html>

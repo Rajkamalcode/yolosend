@@ -1,3 +1,4 @@
+```python
 from loader import *
 import faiss
 import copy
@@ -852,35 +853,15 @@ def convert_to_sqft(measurement_str):
     return None, measurement_str
 
 
-def create_single_doc_extraction_prompt_v2(filename, doc_text_content, doc_plain_tables):
-    """Creates a heavily revised prompt for the LLM with detailed instructions for the 7 high-priority fields."""
+def create_extraction_prompt_phase1(filename, doc_text_content, doc_plain_tables):
+    """Creates prompt for phase 1: address, boundaries, owner name, extent details, property nature."""
     prompt = f"""You are an expert Legal Document Analyst AI. Your task is to perform a high-precision extraction from the document '{filename}'. You must generate a single JSON object as output.
 
-**PRIMARY OBJECTIVE**: Focus all your analytical power on flawlessly extracting the following 7 high-priority sections. Accuracy and completeness for these sections are paramount.
-1.  **PROPERTY ADDRESS**: The full, complete address of the primary property.
-2.  **PROPERTY EXTENT DETAILS**: All measurements of the property.
-3.  **BOUNDARIES**: The four cardinal boundaries (North, South, East, West).
-4.  **TITLE HISTORY**: The chronological flow of ownership.
-5.  **DOCUMENTS EXAMINED**: The list of all legal documents reviewed.
-6.  **MORTGAGE DOCUMENTS**: Specific documents for pre and post-disbursal.
-7.  **LEGAL OPINION**: A detailed, initial legal assessment based *only* on the text.
-
-**EXTRACTION PROCESS (IMPORTANT - FOLLOW STEP-BY-STEP)**:
-1. **Identify All Headings in the Document**: First, scan the entire 'DOCUMENT CONTENT' for ALL section headings or subheadings used by the lawyer. These may include phrases like "PROPERTY ADDRESS", "BOUNDARIES OF THE PROPERTY", "DOCUMENTS EXAMINED", "SCRUTINIZED DOCUMENTS", "TITLE FLOW", "HISTORY OF TITLE", "PRE-DISBURSAL DOCUMENTS", "POST-DISBURSAL REQUIREMENTS", "LEGAL OPINION", "CONCLUSION", or similar variations (case-insensitive). List them internally to guide your extraction.
-2. **Map Headings to Extraction Fields**: Associate the identified headings with the 7 high-priority fields above. For example:
-   - Map "DESCRIPTION OF PROPERTY" or "SCHEDULE OF PROPERTY" to PROPERTY ADDRESS and/or BOUNDARIES.
-   - Map "DOCUMENTS EXAMINED" or "DOCUMENTS SCRUTINIZED" to DOCUMENTS EXAMINED.
-   - Map "TITLE FLOW" or "CHAIN OF TITLE" to TITLE HISTORY.
-   - Map sections like "DOCUMENTS TO BE OBTAINED BEFORE DISBURSAL" to MORTGAGE DOCUMENTS (pre_disbursal), and "DOCUMENTS AFTER DISBURSAL" to post_disbursal.
-   - Map "OPINION" or "CONCLUSION" to LEGAL OPINION.
-   If a heading doesn't perfectly match, use semantic similarity (e.g., "Property Details" could map to PROPERTY ADDRESS and EXTENT).
-3. **Extract Content Fully Under Each Mapped Heading**: For each mapped heading, extract **ALL** content under that heading verbatim, without summarizing, omitting, filtering, or altering ANY details. Capture every single point, list item, sentence, or sub-detail. If a section has a list (e.g., 27 documents examined), extract ALL 27 items completely, including any descriptions, dates, parties, or notes. Do not decide what is "relevant"—include EVERYTHING under the heading.
-4. **Structure the Extracted Content**: After extracting the full content, structure it into the specified JSON formats below. Ensure no data is lost in structuring—e.g., for lists, create an entry for each item.
-5. **Cross-Check for Completeness**: After extraction, verify that nothing from the original sections is missing in your output. If content spans multiple pages or is interrupted, piece it together fully.
+**PRIMARY OBJECTIVE**: Focus on extracting the following sections: PROPERTY ADDRESS, BOUNDARIES, OWNER NAME(S), PROPERTY EXTENT DETAILS, PROPERTY NATURE. Also mark potential issues and generate guidance questions for these sections.
 
 **DETAILED EXTRACTION INSTRUCTIONS**:
 
-Extract the information into a single JSON object with the following 11 keys. Adhere strictly to the formats provided.
+Extract the information into a single JSON object with the following keys. Adhere strictly to the formats provided.
 
 1.  **PROPERTY ADDRESS** (High Priority):
    - A Property address is a identifier to a property which usually contains Plot numbers, Survey Numbers and more. Look for property address with most Identification numbers. Do not take address which is in R/O that is usually associated with Owner name or their details. Look for actual Property details with expanded details.
@@ -912,6 +893,37 @@ Extract the information into a single JSON object with the following 11 keys. Ad
     *   Capture the original text exactly, including units (e.g., "[number] acres", "[number] sq. ft.", "[number] cents", "[number] grounds").
     *   Format: {{"land_area": "e.g., [number] acres", "built_up_area": "e.g., [number] sq. ft.", "floor_wise_areas": "e.g., Ground Floor: [number] sq. ft., First Floor: [number] sq. ft."}}
     *   If a measurement is not mentioned, use "Not Found".
+
+9.  **PROPERTY NATURE**:
+    *   Format: {{"type": "Residential", "ownership_type": "Single", "access_type": "Direct Public Access", "special_conditions": "None", "classification": "Building"}}
+
+10. **POTENTIAL ISSUES (FLAGS)**:
+    *   List any risks, discrepancies, or missing information you found in the above sections.
+    *   For each issue, include the related_section (one of: "property_address", "boundaries", "owner_names", "property_extent", "property_nature").
+    *   Format: [{{"issue_type": "Title Gap", "description": "Missing link document between [year1] and [year2].", "severity": "High", "evidence": "Quote from document or page number", "related_section": "title_history"}}]
+
+11. **GUIDANCE QUESTIONS**:
+    *   Based on your analysis, generate specific questions to check against internal company guides for the above sections.
+    *   Format: {{"boundaries_questions": ["question1", "question2"], "property_nature_questions": ["question1"]}}
+
+Output only the single, complete JSON object. Do not add any text before or after the JSON.
+---
+**DOCUMENT CONTENT for '{filename}'**:
+{doc_text_content}
+---
+"""
+    return prompt
+
+
+def create_extraction_prompt_phase2(filename, doc_text_content, doc_plain_tables):
+    """Creates prompt for phase 2: title history, documents examined, mortgage documents, legal opinion."""
+    prompt = f"""You are an expert Legal Document Analyst AI. Your task is to perform a high-precision extraction from the document '{filename}'. You must generate a single JSON object as output.
+
+**PRIMARY OBJECTIVE**: Focus on extracting the following sections: DOCUMENTS EXAMINED, TITLE HISTORY, MORTGAGE DOCUMENTS, LEGAL OPINION. Also mark potential issues and generate guidance questions for these sections.
+
+**DETAILED EXTRACTION INSTRUCTIONS**:
+
+Extract the information into a single JSON object with the following keys. Adhere strictly to the formats provided.
 
 5.  **DOCUMENTS EXAMINED** (High Priority):
     *   Extract the entire information from the "Documents Examined", "Documents Scrutinized", "Documents Verified", "Documents Reviewed", or any similar section exactly as it appears in the document. This is critical: capture EVERY SINGLE DOCUMENT listed, including all details provided for each one, without summarizing, filtering, omitting duplicates, or altering any content—even if they are photocopies, originals, or repeated entries. Do not decide to omit or filter any documents; include absolutely everything listed in the section.
@@ -961,18 +973,14 @@ Extract the information into a single JSON object with the following 11 keys. Ad
         "summarized_opinion": "Provide a neat, to-the-point summary of the lawyer's opinion in 2-4 sentences, incorporating key keywords from the document (e.g., 'clear title', 'encumbrance free', 'suitable for mortgage'), and ensuring it aligns directly with the verbatim opinion."
     }}
 
-9.  **PROPERTY NATURE**:
-    *   Format: {{"type": "Residential", "ownership_type": "Single", "access_type": "Direct Public Access", "special_conditions": "None", "classification": "Building"}}
-
 10. **POTENTIAL ISSUES (FLAGS)**:
-    *   List any risks, discrepancies, or missing information you found.
-    *   For each issue, include the related_section (one of: "property_address", "boundaries", "owner_names", "property_extent", "title_history", "documents_examined", "mortgage_documents", "legal_opinion", "property_nature").
+    *   List any risks, discrepancies, or missing information you found in the above sections.
+    *   For each issue, include the related_section (one of: "title_history", "documents_examined", "mortgage_documents", "legal_opinion").
     *   Format: [{{"issue_type": "Title Gap", "description": "Missing link document between [year1] and [year2].", "severity": "High", "evidence": "Quote from document or page number", "related_section": "title_history"}}]
 
 11. **GUIDANCE QUESTIONS**:
-    *   Based on your analysis, generate specific questions to check against internal company guides.
-    *   Format: {{"boundaries_questions": ["question1", "question2"], "title_history_questions": ["question1"], "property_nature_questions": ["question1"], "potential_issues_questions": ["question1"], "legal_opinion_questions": ["question1"]}}
-    *   Generate questions only where relevant discrepancies or flags are found in the respective sections.
+    *   Based on your analysis, generate specific questions to check against internal company guides for the above sections.
+    *   Format: {{"title_history_questions": ["question1"], "potential_issues_questions": ["question1"], "legal_opinion_questions": ["question1"]}}
 
 **SPECIFIC FORMATTING INSTRUCTIONS:**
 1.  For **TITLE HISTORY**:
@@ -980,14 +988,6 @@ Extract the information into a single JSON object with the following 11 keys. Ad
     *   Use "in_favour_of" instead of "to".
     *   Omit the "owner" field in the final JSON structure for this key.
     *   For transfer nature: Use exact terms like "Sale", "Will", "Court Decree", "Gift", "Partition".
-
-2.  For **PROPERTY EXTENT DETAILS**:
-    *   Clearly separate "land_area" and "built_up_area".
-    *   Include original units in the extracted string.
-
-3.  For **OWNER NAME(S)**:
-    *   Extract ONLY from sections explicitly labeled "Owner", "Title Owner".
-    *   If a dedicated owner section is not found, return "Not Found".
 
 Output only the single, complete JSON object. Do not add any text before or after the JSON.
 ---
@@ -997,16 +997,12 @@ Output only the single, complete JSON object. Do not add any text before or afte
 """
     return prompt
 
-
-
-
-def parse_single_doc_extraction_response_v2(response_text, filename, doc_text_content=""):
-    """Parses LLM response and enhances address extraction with regex fallback."""
+def parse_extraction_response_phase1(response_text, filename, doc_text_content=""):
+    """Parses LLM response for phase 1 and enhances with regex fallback."""
     try:
         # Extract JSON from response
         json_match = re.search(r'```json\s*({.*?})\s*```', response_text, re.DOTALL)
         if not json_match:
-            # Fallback if no code block is found, assume the entire response is JSON
             if response_text.strip().startswith('{') and response_text.strip().endswith('}'):
                 json_str = response_text.strip()
             else:
@@ -1021,46 +1017,32 @@ def parse_single_doc_extraction_response_v2(response_text, filename, doc_text_co
             "BOUNDARIES": "boundaries",
             "OWNER NAME(S)": "owner_names",
             "PROPERTY EXTENT DETAILS": "property_extent",
-            "TITLE HISTORY": "title_history",
-            "DOCUMENTS EXAMINED": "documents_examined",
-            "MORTGAGE DOCUMENTS": "mortgage_documents",
-            "LEGAL OPINION": "legal_opinion",
             "PROPERTY NATURE": "property_nature",
             "POTENTIAL ISSUES (FLAGS)": "potential_issues",
-            "GUIDANCE QUESTIONS": "guidance_questions" # Updated key
+            "GUIDANCE QUESTIONS": "guidance_questions"
         }
 
         standardized_data = {}
-
-        # Lowercase all keys in the parsed data for case-insensitive matching
         data_lower = {k.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_"): v for k, v in data.items()}
 
         for aiprompt_key, python_key in key_mapping.items():
-            # Handle the old and new key for questions for backward compatibility
             lookup_key = aiprompt_key.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_")
             if lookup_key in data_lower:
                 standardized_data[python_key] = data_lower[lookup_key]
-            # Specific fallback check for the old "regulatory_questions" key name
-            elif python_key == "guidance_questions" and "regulatory_questions" in data_lower:
-                 standardized_data[python_key] = data_lower["regulatory_questions"]
             else:
                 standardized_data[python_key] = "Not Found"
 
-
         # Enhanced address extraction fallback
         if not standardized_data.get("property_address") or str(standardized_data.get("property_address", "")).lower() in ["not found", "n/a"]:
-            # First, try the user's specific pattern for explicit full address
             full_address = extract_full_address_line(doc_text_content)
             if full_address:
-                 standardized_data["property_address"] = full_address  # Extract as is
+                 standardized_data["property_address"] = full_address
             else:
-                # If that fails, try the component-based approach and format as specified
                 address_components = extract_address_components(doc_text_content)
                 if address_components:
                     constructed_address = construct_address(address_components)
                     standardized_data["property_address"] = constructed_address
                 else:
-                    # Final fallback to paragraph with most keywords
                     paragraphs = doc_text_content.split('\n\n')
                     best_paragraph = None
                     max_keywords = 0
@@ -1075,41 +1057,23 @@ def parse_single_doc_extraction_response_v2(response_text, filename, doc_text_co
                     else:
                         standardized_data["property_address"] = "Not Found"
 
-
-        # (New) Add owner name extraction fallback from document text
         if not standardized_data.get("owner_names") or standardized_data.get("owner_names") == "Not Found":
             owner_names = extract_owner_names(doc_text_content)
             if owner_names:
                 standardized_data["owner_names"] = owner_names
 
-        # (New) Process property extent with fallback
         if not standardized_data.get("property_extent") or standardized_data.get("property_extent") == "Not Found":
             standardized_data["property_extent"] = extract_property_extent(doc_text_content)
-
-
-        # Validate mortgage document structure
-        mortgage_docs = standardized_data.get("mortgage_documents", {})
-        if isinstance(mortgage_docs, dict):
-            if not isinstance(mortgage_docs.get("pre_disbursal"), list):
-                mortgage_docs["pre_disbursal"] = []
-            if not isinstance(mortgage_docs.get("post_disbursal"), list):
-                mortgage_docs["post_disbursal"] = []
-            standardized_data["mortgage_documents"] = mortgage_docs
-        else:
-            # If the format is wrong, reset it to the expected structure
-            standardized_data["mortgage_documents"] = {"pre_disbursal": [], "post_disbursal": []}
 
         # Standardize and convert property extent details
         if "property_extent" in standardized_data and isinstance(standardized_data["property_extent"], dict):
             extent = standardized_data["property_extent"]
 
-            # Land Area
             land_area_orig = extent.get("land_area", "Not Found")
             converted_land_area, _ = convert_to_sqft(land_area_orig)
             if converted_land_area:
                 extent["land_area_sqft"] = converted_land_area
 
-            # Built-up Area
             built_up_area_orig = extent.get("built_up_area", "Not Found")
             converted_built_up_area, _ = convert_to_sqft(built_up_area_orig)
             if converted_built_up_area:
@@ -1120,11 +1084,9 @@ def parse_single_doc_extraction_response_v2(response_text, filename, doc_text_co
             nature = standardized_data["property_nature"]
             boundaries_list = standardized_data.get("boundaries", [])
 
-            # Ensure potential_issues is a list
             if "potential_issues" not in standardized_data or not isinstance(standardized_data["potential_issues"], list):
                 standardized_data["potential_issues"] = []
 
-            # Per-set landlocked check
             landlocked_sets = []
             has_access = False
             for idx, boundary in enumerate(boundaries_list):
@@ -1141,11 +1103,9 @@ def parse_single_doc_extraction_response_v2(response_text, filename, doc_text_co
                         "evidence": "No access-related keywords found in this set of boundaries.",
                         "related_section": "boundaries"
                     }
-                    # Check if already flagged to avoid duplicates
                     if not any(issue.get("description") == landlocked_issue["description"] for issue in standardized_data["potential_issues"]):
                         standardized_data["potential_issues"].append(landlocked_issue)
 
-            # Determine overall access type
             if len(boundaries_list) > 0:
                 if landlocked_sets == []:
                     nature["access_type"] = "Direct Public Access"
@@ -1154,42 +1114,11 @@ def parse_single_doc_extraction_response_v2(response_text, filename, doc_text_co
                 else:
                     nature["access_type"] = "Mixed Access"
 
-            # Classify property type based on indicators in the full document text
             building_indicators = ["floor", "storey", "building", "constructed", "sq.ft", "sq ft", "built-up"]
             building_mentioned = any(indicator in doc_text_content.lower() for indicator in building_indicators)
             nature["classification"] = "Building" if building_mentioned else "Plot"
 
-        # (New) Enhanced title history parsing
-        title_history_raw = standardized_data.get("title_history")
-        history_as_list = []
-
-        if isinstance(title_history_raw, list):
-            history_as_list = title_history_raw
-        elif isinstance(title_history_raw, dict):
-            # Convert dictionary of histories into a list
-            history_as_list = [v for k, v in title_history_raw.items() if isinstance(v, dict)]
-
-        if history_as_list:
-            # Use the new processing function
-            processed_history = process_title_history(history_as_list)
-            # Add sequence numbers back in
-            final_history = []
-            for i, entry in enumerate(processed_history):
-                final_history.append({"sequence": i + 1, **entry})
-            standardized_data["title_history"] = final_history
-        else:
-            # If no history, ensure it's an empty list for consistency
-            standardized_data["title_history"] = []
-
-        # Enhanced legal opinion handling
-        if "legal_opinion" in standardized_data and isinstance(standardized_data["legal_opinion"], dict):
-            # Get verbatim opinion using the improved extractor
-            opinion_from_doc = extract_legal_opinion(doc_text_content)
-            
-            # Preserve exact formatting and content
-            standardized_data["legal_opinion"]["lawyers_opinion_as_per_document"] = opinion_from_doc
-
-        # Ensure boundaries are parsed into a list of dicts for multiple sets
+        # Ensure boundaries are parsed into a list of dicts
         boundaries_raw = standardized_data.get("boundaries", "Not Found")
         boundaries_list = []
         if isinstance(boundaries_raw, list):
@@ -1201,7 +1130,6 @@ def parse_single_doc_extraction_response_v2(response_text, filename, doc_text_co
             boundary_dict = {k.lower(): v for k, v in boundaries_raw.items()}
             boundaries_list = [boundary_dict]
         elif isinstance(boundaries_raw, str) and boundaries_raw != "Not Found":
-            # Parse string fallback for single set
             boundary_dict = {}
             parts = [p.strip() for p in boundaries_raw.split(',') if p.strip()]
             for part in parts:
@@ -1219,29 +1147,119 @@ def parse_single_doc_extraction_response_v2(response_text, filename, doc_text_co
         return standardized_data
 
     except Exception as e:
-        return {"error": f"Parsing failed: {str(e)}", "raw_response": response_text}
+        return {"error": f"Parsing phase 1 failed: {str(e)}", "raw_response": response_text}
+
+
+def parse_extraction_response_phase2(response_text, filename, doc_text_content=""):
+    """Parses LLM response for phase 2."""
+    try:
+        json_match = re.search(r'```json\s*({.*?})\s*```', response_text, re.DOTALL)
+        if not json_match:
+            if response_text.strip().startswith('{') and response_text.strip().endswith('}'):
+                json_str = response_text.strip()
+            else:
+                return {"error": "No JSON object found in LLM response"}
+        else:
+            json_str = json_match.group(1)
+
+        data = json.loads(json_str)
+
+        key_mapping = {
+            "TITLE HISTORY": "title_history",
+            "DOCUMENTS EXAMINED": "documents_examined",
+            "MORTGAGE DOCUMENTS": "mortgage_documents",
+            "LEGAL OPINION": "legal_opinion",
+            "POTENTIAL ISSUES (FLAGS)": "potential_issues",
+            "GUIDANCE QUESTIONS": "guidance_questions"
+        }
+
+        standardized_data = {}
+        data_lower = {k.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_"): v for k, v in data.items()}
+
+        for aiprompt_key, python_key in key_mapping.items():
+            lookup_key = aiprompt_key.lower().replace(" ", "_").replace("(", "").replace(")", "").replace("-", "_")
+            if lookup_key in data_lower:
+                standardized_data[python_key] = data_lower[lookup_key]
+            else:
+                standardized_data[python_key] = "Not Found"
+
+        # Validate mortgage document structure
+        mortgage_docs = standardized_data.get("mortgage_documents", {})
+        if isinstance(mortgage_docs, dict):
+            if not isinstance(mortgage_docs.get("pre_disbursal"), list):
+                mortgage_docs["pre_disbursal"] = []
+            if not isinstance(mortgage_docs.get("post_disbursal"), list):
+                mortgage_docs["post_disbursal"] = []
+            standardized_data["mortgage_documents"] = mortgage_docs
+        else:
+            standardized_data["mortgage_documents"] = {"pre_disbursal": [], "post_disbursal": []}
+
+        # Enhanced title history parsing
+        title_history_raw = standardized_data.get("title_history")
+        history_as_list = []
+        if isinstance(title_history_raw, list):
+            history_as_list = title_history_raw
+        elif isinstance(title_history_raw, dict):
+            history_as_list = [v for k, v in title_history_raw.items() if isinstance(v, dict)]
+
+        if history_as_list:
+            processed_history = process_title_history(history_as_list)
+            final_history = []
+            for i, entry in enumerate(processed_history):
+                final_history.append({"sequence": i + 1, **entry})
+            standardized_data["title_history"] = final_history
+        else:
+            standardized_data["title_history"] = []
+
+        # Enhanced legal opinion handling
+        if "legal_opinion" in standardized_data and isinstance(standardized_data["legal_opinion"], dict):
+            opinion_from_doc = extract_legal_opinion(doc_text_content)
+            standardized_data["legal_opinion"]["lawyers_opinion_as_per_document"] = opinion_from_doc
+
+        return standardized_data
+
+    except Exception as e:
+        return {"error": f"Parsing phase 2 failed: {str(e)}", "raw_response": response_text}
+
+def combine_extracted_data(phase1_data, phase2_data):
+    """Combines data from phase 1 and phase 2, merging issues and questions."""
+    if "error" in phase1_data or "error" in phase2_data:
+        return {"error": "Error in one or both phases"}
+
+    combined = {**phase1_data, **phase2_data}
+
+    # Merge potential_issues (lists)
+    issues1 = phase1_data.get("potential_issues", [])
+    issues2 = phase2_data.get("potential_issues", [])
+    combined["potential_issues"] = issues1 + issues2
+
+    # Merge guidance_questions (dicts of lists)
+    questions1 = phase1_data.get("guidance_questions", {})
+    questions2 = phase2_data.get("guidance_questions", {})
+    combined_questions = copy.deepcopy(questions1)
+    for key, val in questions2.items():
+        if key in combined_questions:
+            combined_questions[key].extend(val)
+        else:
+            combined_questions[key] = val
+    combined["guidance_questions"] = combined_questions
+
+    return combined
 
 
 def perform_rag_lookups_integrated(extracted_data):
-    """
-    Perform RAG lookups using the questions directly generated by the LLM
-    and integrate the results back into the original data structure
-    """
     if not RAG_AVAILABLE:
         print("RAG not available - FAISS index or related files not loaded")
         return extracted_data, []
 
-    # Get questions from the extracted data (using the new key)
     guidance_questions = extracted_data.get("guidance_questions", {})
     if not guidance_questions or not isinstance(guidance_questions, dict):
         print("No guidance questions found in the extracted data")
         return extracted_data, []
 
-    # Process each section's questions
     all_lookups = []
     enhanced_data = copy.deepcopy(extracted_data)
 
-    # Create section mapping with fallbacks
     section_mapping = {
         "boundaries_questions": ["boundaries", "property_address", "potential_issues"],
         "title_history_questions": ["title_history", "documents_examined", "legal_opinion"],
@@ -1255,17 +1273,14 @@ def perform_rag_lookups_integrated(extracted_data):
         if not questions or not isinstance(questions, list):
             continue
 
-        # Perform FAISS lookups for each question
         section_lookups = []
         for question in questions:
             try:
-                # Use the retrieve_top_k function from the imported module
-                results = retrieve_top_k(question, top_k=3)  # Increased top_k for consistency
+                results = retrieve_top_k(question, top_k=3)
 
                 if results:
-                    # Select the best result with highest similarity
                     top_result = max(results, key=lambda x: x["similarity"])
-                    if top_result["similarity"] < 0.5:  # Add threshold for relevance
+                    if top_result["similarity"] < 0.5:
                         continue
                     lookup = {
                         "query": question,
@@ -1276,20 +1291,17 @@ def perform_rag_lookups_integrated(extracted_data):
                     }
                     section_lookups.append(lookup)
                     all_lookups.append({
-                        "section": data_sections[0], # Attribute to the primary section
+                        "section": data_sections[0],
                         "lookup": lookup
                     })
             except Exception as e:
                 print(f"RAG lookup error: {str(e)}")
 
-        # Add lookups to the enhanced data for all relevant sections
         if section_lookups:
-            # Attach to ALL relevant sections (fallback through list)
             for data_section in data_sections:
                 if data_section not in enhanced_data:
                     continue
 
-                # Create consistent storage format
                 if isinstance(enhanced_data[data_section], dict):
                     if "rag_lookups" not in enhanced_data[data_section]:
                         enhanced_data[data_section]["rag_lookups"] = []
@@ -1298,25 +1310,17 @@ def perform_rag_lookups_integrated(extracted_data):
     return enhanced_data, all_lookups
 
 def create_final_grounded_prompt_integrated(enhanced_data, all_lookups):
-    """
-    Create a prompt for the final LLM pass that requests a concise, grounded opinion.
-    """
-    # Create a clean version of the data for the prompt
     prompt_data = copy.deepcopy(enhanced_data)
 
-    # Remove the guidance_questions section as it's no longer needed
     if "guidance_questions" in prompt_data:
         del prompt_data["guidance_questions"]
 
-    # Remove RAG lookups from the prompt data to avoid duplication, as they are provided separately.
     for section in prompt_data.values():
         if isinstance(section, dict) and "rag_lookups" in section:
             del section["rag_lookups"]
 
-    # Format the data as JSON for the prompt
     formatted_data = json.dumps(prompt_data, indent=2)
 
-    # Format the lookups in a readable way for the prompt
     formatted_lookups = "\n\n".join(
         f"Section: {lookup['section']}\n"
         f"Query: {lookup['lookup']['query']}\n"
@@ -1324,7 +1328,6 @@ def create_final_grounded_prompt_integrated(enhanced_data, all_lookups):
         for lookup in all_lookups
     )
 
-    # Create the prompt
     prompt = f"""You are a Chief Legal Officer with expertise in Loan Against Property company guides.
 Review the following property document analysis and the associated guidance retrieved from the CIFCL knowledge base.
 
@@ -1371,17 +1374,14 @@ def render_single_doc_view():
     )
 
     if uploaded_file and st.button("🔎 Analyze Document", use_container_width=True):
-        # Clear previous results
         st.session_state.single_doc_result_v2 = None
         st.session_state.enhanced_doc_result = None
         st.session_state.final_grounded_opinion = None
         st.session_state.rag_lookups = []
 
         with st.status("Processing...", expanded=True) as status:
-            # Initial document processing
             status.update(label="Pre-processing document...")
             file_bytes = uploaded_file.getvalue()
-            # OCR Engine is now hardcoded to Doctr
             processed_data = process_pdf_file(file_bytes, uploaded_file.name, POPPLER_PATH, LANGUAGES_FOR_OCR) if uploaded_file.type == "application/pdf" else process_txt_file(file_bytes, uploaded_file.name)
 
             if processed_data.get("error"):
@@ -1389,32 +1389,43 @@ def render_single_doc_view():
                 st.error(processed_data["error"])
                 return
 
-            # (New) Optimize context length before sending to LLM
             doc_text_content = optimize_context(processed_data["translation"])
 
+            status.update(label="Performing phase 1 analysis with AI...")
+            prompt_phase1 = create_extraction_prompt_phase1(uploaded_file.name, doc_text_content, processed_data.get("plain_text_tables", []))
+            llm_response_phase1 = call_ollama_api(prompt_phase1, DEFAULT_OLLAMA_URL_ANALYSIS, DEFAULT_ANALYSIS_MODEL_NAME, "LegalAnalysisPhase1")
+            with open("legal_analysis_phase1_output.txt", "w", encoding="utf-8") as file: file.write(llm_response_phase1)
 
-            # First Ollama call: Extract data AND generate guidance questions
-            status.update(label="Performing comprehensive analysis with AI...")
-            # Use default values for Ollama URL and model name, removing dependency on session state from sidebar
-            prompt = create_single_doc_extraction_prompt_v2(uploaded_file.name, doc_text_content, processed_data.get("plain_text_tables", []))
-            llm_response = call_ollama_api(prompt, DEFAULT_OLLAMA_URL_ANALYSIS, DEFAULT_ANALYSIS_MODEL_NAME, "LegalAnalysis")
-            with open("legal_analysis_output.txt", "w", encoding="utf-8") as file: file.write(llm_response)
- 
-
-            if not llm_response:
-                status.update(label="AI analysis failed", state="error")
-                st.session_state.single_doc_result_v2 = {"error": "The AI model failed to return a response."}
+            if not llm_response_phase1:
+                status.update(label="AI phase 1 analysis failed", state="error")
+                st.session_state.single_doc_result_v2 = {"error": "The AI model failed to return a response for phase 1."}
                 return
 
-            # Parse the extraction with guidance questions
-            extracted_data = parse_single_doc_extraction_response_v2(llm_response, uploaded_file.name, processed_data["translation"]) # Pass full text for parsing fallbacks
+            phase1_data = parse_extraction_response_phase1(llm_response_phase1, uploaded_file.name, processed_data["translation"])
+
+            if "error" in phase1_data:
+                status.update(label="Phase 1 parsing failed", state="error")
+                return
+
+            status.update(label="Performing phase 2 analysis with AI...")
+            prompt_phase2 = create_extraction_prompt_phase2(uploaded_file.name, doc_text_content, processed_data.get("plain_text_tables", []))
+            llm_response_phase2 = call_ollama_api(prompt_phase2, DEFAULT_OLLAMA_URL_ANALYSIS, DEFAULT_ANALYSIS_MODEL_NAME, "LegalAnalysisPhase2")
+            with open("legal_analysis_phase2_output.txt", "w", encoding="utf-8") as file: file.write(llm_response_phase2)
+
+            if not llm_response_phase2:
+                status.update(label="AI phase 2 analysis failed", state="error")
+                st.session_state.single_doc_result_v2 = {"error": "The AI model failed to return a response for phase 2."}
+                return
+
+            phase2_data = parse_extraction_response_phase2(llm_response_phase2, uploaded_file.name, processed_data["translation"])
+
+            if "error" in phase2_data:
+                status.update(label="Phase 2 parsing failed", state="error")
+                return
+
+            extracted_data = combine_extracted_data(phase1_data, phase2_data)
             st.session_state.single_doc_result_v2 = extracted_data
 
-            if "error" in extracted_data:
-                status.update(label="Analysis parsing failed", state="error")
-                return
-
-            # Perform RAG lookups using the generated questions
             if RAG_AVAILABLE and st.session_state.get("enable_rag", True):
                 status.update(label="Retrieving legislative clarifications from CIFCL guides and circulars...")
                 try:
@@ -1423,7 +1434,6 @@ def render_single_doc_view():
                     st.session_state.rag_lookups = all_lookups
 
                     if all_lookups:
-                        # Second Ollama call: Generate final grounded opinion
                         status.update(label="Generating final guidance-grounded legal opinion...")
                         final_prompt = create_final_grounded_prompt_integrated(enhanced_data, all_lookups)
                         final_opinion = call_ollama_api(final_prompt, DEFAULT_OLLAMA_URL_ANALYSIS,
@@ -1438,7 +1448,6 @@ def render_single_doc_view():
             status.update(label="Analysis complete!", state="complete")
         st.rerun()
 
-    # Display results
     if st.session_state.single_doc_result_v2:
         result = st.session_state.single_doc_result_v2
         enhanced_result = st.session_state.enhanced_doc_result or result
@@ -1453,9 +1462,6 @@ def render_single_doc_view():
 
         st.subheader(f"Legal Analysis Report for: {uploaded_file.name}")
 
-        # --- RESTRUCTURED UI SECTIONS ---
-
-        # 1. Property Summary
         with st.expander("Property Summary", expanded=True):
             cols = st.columns(3)
             cols[0].write("**Address:**")
@@ -1494,7 +1500,6 @@ def render_single_doc_view():
             st.write("**Boundaries:**")
             boundaries_data = result.get("boundaries", [])
             if isinstance(boundaries_data, list) and boundaries_data:
-                # Display as table with multiple rows if multiple sets
                 boundary_rows = []
                 for i, b in enumerate(boundaries_data):
                     boundary_rows.append({
@@ -1518,7 +1523,6 @@ def render_single_doc_view():
                     st.info(f"**Guidance:** {lookup['lookup']['answer']}")
                     st.markdown("---")
 
-            # Discrepancies for this section
             section_issues = [issue for issue in result.get("potential_issues", []) if isinstance(issue, dict) and issue.get("related_section") == "boundaries"]
             if section_issues:
                 st.subheader("Discrepancies")
@@ -1527,16 +1531,13 @@ def render_single_doc_view():
             else:
                 st.success("No discrepancies found.")
 
-        # 4. Documents Examined (Moved before Title History)
         with st.expander("Documents Examined", expanded=False):
             docs_examined = result.get("documents_examined", [])
 
-            # No filtering, no deduplication — show all documents exactly as extracted
             if isinstance(docs_examined, list) and docs_examined:
                 st.dataframe(pd.DataFrame(docs_examined), use_container_width=True, hide_index=True)
             else:
                 st.warning("No examined document details found or format is incorrect.")
-            # Discrepancies for this section
             section_issues = [issue for issue in result.get("potential_issues", []) if isinstance(issue, dict) and issue.get("related_section") == "documents_examined"]
             if section_issues:
                 st.subheader("Discrepancies")
@@ -1545,12 +1546,10 @@ def render_single_doc_view():
             else:
                 st.success("No discrepancies found.")
 
-        # 2. Title History (Updated)
         with st.expander("📜 Title History", expanded=True):
             title_history = result.get("title_history", [])
             if isinstance(title_history, list) and title_history:
                 df_history = pd.DataFrame(title_history)
-                # Updated column order as per request
                 column_order = ['sequence', 'document_date', 'document_name','executed_by', 'in_favour_of', 'nature_of_transfer', 'extent_owned']
                 df_history_ordered = df_history.reindex(columns=[col for col in column_order if col in df_history.columns])
                 st.dataframe(df_history_ordered, use_container_width=True, hide_index=True)
@@ -1559,15 +1558,11 @@ def render_single_doc_view():
                 for entry in title_history:
                     with st.container(border=True):
                         cols = st.columns([1, 4])
-                        # Changed from st.metric to st.write for normal size
-                        section_issues = [issue for issue in result.get("potential_issues", []) if isinstance(issue, dict) and issue.get("related_section") == "property_nature"]
                         cols[0].write(f"**#{entry.get('sequence', '')}**")
                         cols[1].write(f"**Date:** {entry.get('document_date', '')}")
                         cols[1].write(f"**Document:** {entry.get('document_name', '')}")
                         cols[1].write(f"**Executed By:** {entry.get('executed_by', '')}")
                         cols[1].write(f"**In Favour of:** {entry.get('in_favour_of', '')}")
-
-                        # Owner field removed as requested
 
                 rag_content_title = [l for l in rag_lookups if l["section"] == "title_history"]
                 if rag_content_title:
@@ -1580,7 +1575,6 @@ def render_single_doc_view():
             else:
                 st.warning("No title history found or format is incorrect.")
 
-            # Discrepancies for this section
             section_issues = [issue for issue in result.get("potential_issues", []) if isinstance(issue, dict) and issue.get("related_section") == "title_history"]
             if section_issues:
                 st.subheader("Discrepancies")
@@ -1589,11 +1583,9 @@ def render_single_doc_view():
             else:
                 st.success("No discrepancies found.")
 
-        # 3. Property Nature
         with st.expander("Property Nature", expanded=False):
             nature = result.get("property_nature", {})
             if isinstance(nature, dict):
-                # Changed from st.metric to st.write/st.info for smaller, consistent font
                 st.write("**Property Classification**")
                 st.info(nature.get("classification", "N/A"))
 
@@ -1622,7 +1614,6 @@ def render_single_doc_view():
             else:
                 st.warning("Property nature details not found or in an incorrect format.")
 
-            # Discrepancies for this section
             section_issues = [issue for issue in result.get("potential_issues", []) if isinstance(issue, dict) and issue.get("related_section") == "property_nature"]
             if section_issues:
                 st.subheader("Discrepancies")
@@ -1631,18 +1622,14 @@ def render_single_doc_view():
             else:
                 st.success("No discrepancies found.")
 
-        # 5. Mortgage Documents
         with st.expander("Mortgage Documents", expanded=False):
             mortgage_docs = result.get("mortgage_documents", {})
             st.write("**Pre-Disbursal Documents**")
             pre_disbursal = mortgage_docs.get("pre_disbursal", [])
             if isinstance(pre_disbursal, list) and pre_disbursal:
-                section_issues = [issue for issue in result.get("potential_issues", []) if isinstance(issue, dict) and issue.get("related_section") == "mortgage_documents"]
                 df_pre = pd.DataFrame(pre_disbursal)
-                # Ensure new column is present
                 if "document_name" in df_pre.columns:
                     df_pre = df_pre.rename(columns={"document_name": "Document Name", "document_description": "Document Description"})
-                    # Reorder columns
                     if "Document Description" in df_pre.columns:
                          df_pre = df_pre[["Document Name", "Document Description"]]
                 st.dataframe(df_pre, use_container_width=True, hide_index=True)
@@ -1659,7 +1646,6 @@ def render_single_doc_view():
                 st.dataframe(df_post, use_container_width=True, hide_index=True)
             else: st.warning("No post-disbursal documents found.")
 
-            # Discrepancies for this section
             section_issues = [issue for issue in result.get("potential_issues", []) if isinstance(issue, dict) and issue.get("related_section") == "mortgage_documents"]
             if section_issues:
                 st.subheader("Discrepancies")
@@ -1668,11 +1654,9 @@ def render_single_doc_view():
             else:
                 st.success("No discrepancies found.")
 
-        # 6. Initial Legal Opinion
         with st.expander("Initial Legal Opinion (Detailed View)", expanded=True):
             opinion = result.get("legal_opinion", {})
             if isinstance(opinion, dict):
-                # The key "detailed_justification" is used as per the new prompt
                 metrics = {
                     "title_clear": ("Title Status", "detailed_justification"),
                     "encumbrances": ("Encumbrances", "detailed_justification"),
@@ -1713,7 +1697,6 @@ def render_single_doc_view():
                         st.markdown("---")
             else: st.error("Legal opinion section is missing or in an incorrect format.")
 
-            # Discrepancies for this section
             section_issues = [issue for issue in result.get("potential_issues", []) if isinstance(issue, dict) and issue.get("related_section") == "potential_issues"]
             if section_issues:
                 st.subheader("Discrepancies")
@@ -1722,7 +1705,6 @@ def render_single_doc_view():
             else:
                 st.success("No discrepancies found.")
 
-        # 7. Potential Issues (Flags)
         with st.expander("🚨 Potential Issues (Flags)", expanded=True):
             issues = result.get("potential_issues")
             if isinstance(issues, list) and issues:
@@ -1746,13 +1728,11 @@ def render_single_doc_view():
                         st.markdown("---")
             else: st.success("✅ No potential issues flagged by the AI.")
 
-        # 8. Final Grounded Opinion
         if st.session_state.final_grounded_opinion:
             with st.expander("🔍 Final Guidance-Grounded Opinion", expanded=True):
                 st.markdown("### Final Legal Opinion (Grounded in CIFCL Guides)")
                 st.markdown(st.session_state.final_grounded_opinion)
 
-        # Download report
         st.markdown("---")
         report_data = enhanced_result if st.session_state.enhanced_doc_result else result
         if st.session_state.final_grounded_opinion:
@@ -1855,7 +1835,6 @@ def generate_legal_report_pdf(filename, analysis_data, rag_lookups=None):
         ]))
         elements.append(boundaries_table)
 
-    # Add RAG lookups for boundaries
     boundary_lookups = [l for l in (rag_lookups or []) if l["section"] == "boundaries"]
     if boundary_lookups:
         elements.append(Spacer(1, 6))
@@ -1866,7 +1845,6 @@ def generate_legal_report_pdf(filename, analysis_data, rag_lookups=None):
             elements.append(Paragraph(f"<b>Answer:</b> {lookup['lookup']['answer']}", styles['Tiny']))
             elements.append(Spacer(1, 3))
 
-    # Property Nature section
     if "property_nature" in analysis_data and isinstance(analysis_data.get("property_nature"), dict):
         elements.append(Spacer(1, 6))
         elements.append(Paragraph("Property Nature", styles['Heading2']))
@@ -1892,7 +1870,6 @@ def generate_legal_report_pdf(filename, analysis_data, rag_lookups=None):
                 elements.append(Paragraph(f"<b>Answer:</b> {lookup['lookup']['answer']}", styles['Tiny']))
                 elements.append(Spacer(1, 3))
 
-    # Potential Issues section
     if "potential_issues" in analysis_data and isinstance(analysis_data.get("potential_issues"), list) and analysis_data["potential_issues"]:
         elements.append(Spacer(1, 6))
         elements.append(Paragraph("Potential Issues (Flags)", styles['Heading2']))
@@ -1920,7 +1897,6 @@ def generate_legal_report_pdf(filename, analysis_data, rag_lookups=None):
                 elements.append(Paragraph(f"<b>Answer:</b> {lookup['lookup']['answer']}", styles['Tiny']))
                 elements.append(Spacer(1, 3))
 
-    # Documents Examined Section (Added)
     docs_examined = analysis_data.get("documents_examined", [])
     if isinstance(docs_examined, list) and docs_examined:
         elements.append(Spacer(1, 6))
@@ -1943,7 +1919,6 @@ def generate_legal_report_pdf(filename, analysis_data, rag_lookups=None):
         ]))
         elements.append(examined_table)
 
-    # Enhanced Title History section
     if isinstance(analysis_data.get("title_history"), list) and analysis_data["title_history"]:
         elements.append(Spacer(1, 6))
         elements.append(Paragraph("Title History", styles['Heading2']))
@@ -1980,7 +1955,6 @@ def generate_legal_report_pdf(filename, analysis_data, rag_lookups=None):
                 elements.append(Paragraph(f"<b>Answer:</b> {lookup['lookup']['answer']}", styles['Tiny']))
                 elements.append(Spacer(1, 3))
 
-    # Enhanced Legal Opinion
     elements.append(Spacer(1, 6))
     opinion = analysis_data.get("legal_opinion", {})
     elements.append(Paragraph("Detailed Initial Legal Opinion", styles['Heading2']))
@@ -2016,7 +1990,6 @@ def generate_legal_report_pdf(filename, analysis_data, rag_lookups=None):
     elements.append(Paragraph("<b>Summarized Lawyer's Opinion</b>", styles['Heading3']))
     elements.append(Paragraph(str(opinion.get("summarized_opinion", "No summarized opinion found")).replace('\n', '<br/>'), styles['Justify']))
 
-    # Enhanced Mortgage Documents Section for PDF
     mortgage_docs = analysis_data.get("mortgage_documents", {})
     pre_disbursal = mortgage_docs.get("pre_disbursal", [])
     post_disbursal = mortgage_docs.get("post_disbursal", [])
@@ -2047,8 +2020,6 @@ def generate_legal_report_pdf(filename, analysis_data, rag_lookups=None):
             ]))
             elements.append(post_table)
     
-    # Removed "Lawyer's Opinion (As Per Document)" from the PDF as requested
-
     opinion_lookups = [l for l in (rag_lookups or []) if l["section"] == "legal_opinion"]
     if opinion_lookups:
         elements.append(Spacer(1, 6))
@@ -2069,14 +2040,11 @@ def main():
             .st-emotion-cache-1avcm0n {height: 100%; display: flex; align-items: center; justify-content: center;}
         </style>""", unsafe_allow_html=True)
 
-    # Sidebar has been removed. Configurations are now hardcoded or use defaults.
-
     logo_col, title_col = st.columns([1, 4])
     with logo_col:
         try: st.image('chola.png', width=200)
         except Exception: st.write(" ")
 
-    # Directly render the single document view as it's the only mode
     render_single_doc_view()
 
     st.markdown("---")
@@ -2095,4 +2063,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

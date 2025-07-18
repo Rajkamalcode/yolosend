@@ -1,3 +1,4 @@
+```python
 from loader import *
 st.set_page_config(
         page_title="Legal Document Analysis",
@@ -963,9 +964,9 @@ Extract the information into a single JSON object with the following 11 keys. Ad
     *   Format: [{{"issue_type": "Title Gap", "description": "Missing link document between [year1] and [year2].", "severity": "High", "evidence": "Quote from document or page number", "related_section": "title_history"}}]
 
 11. **GUIDANCE QUESTIONS**:
-    *   Based on your analysis, generate specific questions to check against internal company guides.
+    *   Based on your analysis, generate specific questions for each section to check against internal company guides, focusing on verification, compliance, and best practices.
     *   Format: {{"boundaries_questions": ["question1", "question2"], "title_history_questions": ["question1"], "property_nature_questions": ["question1"], "potential_issues_questions": ["question1"], "legal_opinion_questions": ["question1"]}}
-    *   Generate questions only where relevant discrepancies or flags are found in the respective sections.
+    *   Generate at least one question per section, more if specific discrepancies or flags are found.
 
 **SPECIFIC FORMATTING INSTRUCTIONS:**
 1.  For **TITLE HISTORY**:
@@ -2086,3 +2087,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
